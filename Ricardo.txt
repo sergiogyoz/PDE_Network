@@ -1,0 +1,13 @@
+-A PDE that's "the limiting behaviour" of the Braum Willet
+-Compare the solutions of the full PDE to the solutions where we just pick just one direction
+-Is there something in between those cases? ( how to modify the PDE? or something in a organized manner)
+
+3/4/22 meeting
+-Focus on the one dimensional case and figure out the restrains issue 
+	*too many/few constants and fix number of restrains
+	*how does the flux equations gets involved 
+-Make R=0 so that no mass is leaving the system
+-start typing down some numerical solution to the one dimensional case to see the
+ convergence from the transient state into the steady state
+
+	
