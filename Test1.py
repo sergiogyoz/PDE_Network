@@ -1,8 +1,19 @@
 from mpmath import *
+import numpy as np
+import matplotlib.pyplot as plt
 
 mp.dps = 15; mp.pretty = True
 tt = [0.001, 0.01, 0.1, 1, 10]
-fp = lambda p: 1/(p+1)**2
+fs = lambda s: 1/(s+1)**2
 ft = lambda t: t*exp(-t)
-ft(tt[0]),ft(tt[0])-invertlaplace(fp,tt[0],method='talbot')
-(0.000999000499833375, 8.57923043561212e-20)
+
+f=[]
+t=np.arange(0,10,0.1)
+for time in t:
+    f.append( ft(time) )
+
+plt.plot(t,f);
+
+print(ft(tt[0]))
+print(invertlaplace(fp,tt[0],method='talbot'))
+
