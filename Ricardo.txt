@@ -16,3 +16,6 @@
 https://hal.archives-ouvertes.fr/hal-00098062v4/document
 -Take a look at the generalized Laguerre
 -Try to follow the paper and use the Flux functions they are using
+
+4/11/22
+-We need an example we can verify the solution to compare or reproduce an example from the paper 
