@@ -19,3 +19,8 @@ https://hal.archives-ouvertes.fr/hal-00098062v4/document
 
 4/11/22
 -We need an example we can verify the solution to compare or reproduce an example from the paper 
+
+4/15/22 meeting
+-Find a sparse matrix solver for python
+-We also need the bigger problem
+-We use the smaller problem to validate the "big" problem
