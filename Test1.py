@@ -2,7 +2,6 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 def GSinverse(t, Qs, omega):
     #finding the kappa coefficients
     if(t==0):
