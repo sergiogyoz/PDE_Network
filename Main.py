@@ -12,9 +12,12 @@ from sympy.abc import x
 import scipy.sparse
 import scipy.sparse.linalg
 
+
 # %%
 class InitialConditions:
-    def __init__(self, l, R, D, u, S, C=False, I=False):
+    def __init__(self, l, R, D, u, S, qx,
+                 C=False, I=False, qt=False, adjcency=False):
+        self.qx = qx
         self.l = l
         self.R = R
         self.D = D
@@ -22,12 +25,14 @@ class InitialConditions:
         self.S = S
         self.C = C
         self.I = I
+        self.qt = qt
         if (not C) and (not I):
             raise(ValueError("No concentration C or current I given"))
         if not I:
             self.n = len(C)
         else:
             self.n = len(I)
+        self.adj = adjacency
 
     @staticmethod
     def antisymmetrize(matrix, lowerleft=False):
@@ -118,17 +123,21 @@ class Solver:
     ic = InitialConditions()
     ftool = f_tools()
 
-    def prog_matrix(self, s, t=0, extra_param=False):
+    def I_Lap_vector(self, s):
         n = self.ic.n
-        I = np.zeros(n)
+        I_lap = np.zeros(n)
         for i in range(n):
-            I[i] = self.ftool.Laplace(self.ic.I[i], s)
+            I_lap[i] = self.ftool.Laplace(self.ic.I[i], s)
+
+    def prog_matrix(self, s, t=0, return_extra=False):
+        n = self.ic.n
         alpha = np.zeros([n, n])
         h = np.zeros([n, n])
         g = np.zeros([n, n])
         for i in range(n):
             for j in range(n):
-                alpha[i][j] = math.sqrt(self.ic.u[i][j](t)**2 + 4*self.ic.D[i][j](t)*(s+self.ic.R[i][j]))
+                alpha[i][j] = math.sqrt(self.ic.u[i][j](t)*self.ic.u[i][j](t)
+                                        + 4*self.ic.D[i][j](t)*(s+self.ic.R[i][j]))
                 g[i][j] = self.ic.u[i][j](t)*self.ic.l[i][j]/(2*self.ic.D[i][j](t))
                 h[i][j] = alpha[i][j]*self.ic.l[i][j]/(2*self.ic.D[i][j](t))
         M = np.zeros([n, n])
@@ -144,14 +153,46 @@ class Solver:
                                * alpha[i][j]
                                * math.exp(-g[i][j])
                                / (2*math.sinh(h[i][j])))
-        if not extra_param:
+        if not return_extra:
             return M
         else:
             return M, alpha, h, g
-    
-    def non_homogeneous(self, s, t=0, extra_param=False):
-        M, alpha, h, g= self.prog_matrix(s,t,extra_param)
-        pass
+
+    def p_vector(self, N, s, t=0, return_extra=False):
+        n = self.ic.n
+        M, alpha, h, g = self.prog_matrix(s, t, return_extra)
+        b = np.zeros([n, n])
+        p = self.I_Lap_vector(s)
+        b_vec = np.zeros(n)
+        for i in range(n):
+            for j in range(n):
+                b[i][j] = Solver.beta(s,
+                                      self.ic.qx[i][j],
+                                      g[i][j],
+                                      h[i][j],
+                                      R[i][j],
+                                      self.ic.u[i][j](t),
+                                      self.ic.l[i][j],
+                                      alpha[i][j],
+                                      N)
+                b_vec[i] += b[i][j]
+        if not return_extra:
+            return p+b_vec, M
+        else:
+            return p+b_vec, M, alpha, h, g, b
+
+    @staticmethod
+    def beta(s, qx, g, h, R, u, l, alpha, N):
+        sum = 0
+        left_term = (math.exp(h/N)-math.exp(-g/N))*(alpha-u)
+        right_term = (math.exp(-h/N)-math.exp(-g/N))*(alpha+u)
+        denominator = (4*(s+R)*math.sinh(h))
+        for n in range(1, N+1):
+            k = qx((n-1)*l/N)
+            coeff = k*math.exp(((1-n)/N)*g) / denominator
+            sum += coeff*(math.exp(((N-n)/N)*h)*left_term
+                          + math.exp(((n-N)/N)*h)*right_term)
+        return sum
 
     C = scipy.sparse.linalg.spsolve(M, I)
 
@@ -185,19 +226,31 @@ for i in range(n):
 InitialConditions.antisymmetrize(u)
 InitialConditions.symmetrize(S)
 
-# fill q_i(0,t)
-q = [f_tools.zerof]*n
+# fill q_ij(x,0) from 0 to l_ij
+k=0.01
+qx=[[0]*n]*n
+for i in range(n):
+    for j in range(i+1,n):
+        def g(x):
+            if (0<=x and x<=l[i][j]):
+                return k
+            else:
+                return 0
+        qx[i][j]=g
+        
+# fill q_ij(0,t)
+qt = [f_tools.zerof]*n
 for i in range(n):
     def q_i(t=0):
         return t/10
-    q[i] = q_i
+    qt[i] = q_i
 
 
 # fill D and C
 for i in range(n):
     for j in range(n):
         def D_ij(t=0):
-            return Dm + (u[i][j](t) ** 2) * 1 / (48 * Dm)
+            return Dm + (u[i][j](t) * u[i][j](t)) * 1 / (48 * Dm)
 
         D[i][j] = D_ij
 
@@ -205,7 +258,7 @@ for i in range(n):
     for j in range(n):
         if adjacency[i][j]:
             def C_i(t=0):
-                return q(t) / S[i][j](t)
+                return qt(t) / S[i][j](t)
             C[i] = C_i
             break
 
