@@ -123,6 +123,10 @@ class Solver:
     ic = InitialConditions()
     ftool = f_tools()
 
+    def __init__(self, initial_conditions):
+        self.ic = initial_conditions
+        self.ftool = f_tools()
+
     def I_Lap_vector(self, s):
         n = self.ic.n
         I_lap = np.zeros(n)
@@ -158,12 +162,10 @@ class Solver:
         else:
             return M, alpha, h, g
 
-    def p_vector(self, N, s, t=0, return_extra=False):
+    def beta_matrix(self, N, s, t=0, return_extra=False):
         n = self.ic.n
         M, alpha, h, g = self.prog_matrix(s, t, return_extra)
         b = np.zeros([n, n])
-        p = self.I_Lap_vector(s)
-        b_vec = np.zeros(n)
         for i in range(n):
             for j in range(n):
                 b[i][j] = Solver.beta(s,
@@ -175,11 +177,10 @@ class Solver:
                                       self.ic.l[i][j],
                                       alpha[i][j],
                                       N)
-                b_vec[i] += b[i][j]
         if not return_extra:
-            return p+b_vec, M
+            return b
         else:
-            return p+b_vec, M, alpha, h, g, b
+            return b, M, alpha, h, g
 
     @staticmethod
     def beta(s, qx, g, h, R, u, l, alpha, N):
@@ -193,6 +194,7 @@ class Solver:
             sum += coeff*(math.exp(((N-n)/N)*h)*left_term
                           + math.exp(((n-N)/N)*h)*right_term)
         return sum
+
 
     C = scipy.sparse.linalg.spsolve(M, I)
 
