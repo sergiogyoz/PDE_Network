@@ -15,40 +15,88 @@ import scipy.sparse.linalg
 
 # %%
 class InitialConditions:
-    def __init__(self, l, R, D, u, S, qx,
-                 C=False, I=False, qt=False, adjcency=False):
-        self.qx = qx
+    """
+    Class to store initial conditions of a Network problem and
+    store frequenly used constants for the network.
+
+    ...
+
+    Attributes
+    ----------
+    qx : numpy 3D array
+        Initial condition. For i,j it contains the resource
+        distribution at t=0, i.e. qij(x_n,0) for 0<n<=N[i][j]
+    l : numpy matrix
+        Lenghts of each edge i,j
+    R : numpy matrix
+        Rate of delivery outside of the network of each edge i,j
+    D : numpy matrix
+        Diffusion coefficient of edge i,j
+    u : numpy matrix
+        Average Medium velocity of edge i,j at time t
+    S : numpy matrix
+        Cross sectional area of edge i,j at time t
+    I : vector of functions
+        net rate at which resource leaves node i at time t
+    N : numpy matrix
+        Number of grid points along x for edge i,j
+    adjacency : list of lists
+        Adjacency matrix to efficiently tranverse the matrix.
+        List entry i is a list of the indices j connected to i.
+    qt : vector of functions
+        Boundary condition. Resource distribution qij(0,t)=Sij*Ci(t)
+        for each node i over time t
+    C : (optional) vector of functions
+        Not currently implemented. Concentrations functions
+
+    Methods
+    -------
+    antisymmetrize(matrix, lowerleft=False)
+        Makes the matrix matrix antisymmetric
+
+    symmetrize(matrix, lowerleft=False)
+        Makes the matrix matrix symmetric
+
+    evalmatrix(matrix, t=0, printmatrix=False)
+        Evaluates a matrix function at t
+
+    evalvector(vector, t=0, printvector=False)
+        Evaluates a vector function at t
+    """
+    def __init__(self, qx, l, R, D, u, S, I,
+                 N, adjacency, qt, C=False):
+        self.qx = qx    #Array of q at every Delta x when t=0
         self.l = l
         self.R = R
         self.D = D
         self.u = u
         self.S = S
-        self.C = C
         self.I = I
-        self.qt = qt
+        self.N = N  #this could be optional
+        self.adj = adjacency    #this could be optional
+        self.qt = qt    #This is also optional given I
+        self.C = C  #not currently implemented
         if (not C) and (not I):
             raise(ValueError("No concentration C or current I given"))
         if not I:
             self.n = len(C)
         else:
             self.n = len(I)
-        self.adj = adjacency
+        self.g = u*l/(2*D)
 
     @staticmethod
     def antisymmetrize(matrix, lowerleft=False):
+        n = len(n)
         for i in range(n):
             for j in range(i+1, n):
                 if not lowerleft:
-                    def negUij(t=0):
-                        return -matrix[i][j](t)
-                    matrix[j][i] = negUij
+                    matrix[j][i] = -matrix[i][j]
                 else:
-                    def negUji(t=0):
-                        return -matrix[j][i](t)
-                    matrix[i][j] = negUji
+                    matrix[i][j] = -matrix[j][i]
 
     @staticmethod
     def symmetrize(matrix, lowerleft=False):
+        n = len(matrix)
         for i in range(n):
             for j in range(i+1, n):
                 if not lowerleft:
@@ -81,8 +129,8 @@ class InitialConditions:
 
 
 class f_tools:
-
-    def __init__(self,num_roots=30):
+    LOG2 = math.log(2)
+    def __init__(self, num_roots=30):
         self.num_of_roots = num_roots
         self.x_i, self.w_i = f_tools.lag_weights_roots(
             self.num_of_roots)
@@ -109,15 +157,42 @@ class f_tools:
                 * laguerre(n + 1, rt)) ** 2).evalf(20) for rt in roots]
         return x_i, w_i
 
-    def Laplace(self, func, s):
+    def Laplace(self, Qt, s):
         # integrate e^-t f(t/s)/s dt using gauss laguerre quadrature
         def g(t=0):
-            return func(t/s)/s
+            return Qt(t/s)/s
         integral = 0
         for i in range(self.num_of_roots):
-            integral = integral+self.w_i*g(self.x_i)
+            integral = integral+self.w_i[i]*g(self.x_i[i])
         return integral
 
+    def GSinverse(self, Qs, t, omega):
+        """
+        My own implementation of GS method. omega must be an even integer,
+        t>0, and Qs the Laplace transform function.
+        """
+        #finding the kappa coefficients
+        if(t==0 or omega%2!=0):
+            raise(ValueError("t=0 is not a valid input and omega must be even"));
+        kappa=[0]*(omega+1);
+        for n in range (1,omega+1):
+            omega2=omega//2;
+            sign= 1 if ((n+omega2)%2==0) else -1;
+            lowK=math.floor((n+1)/2);
+            highK=min(n,omega2);
+            Sum=0;
+            for k in range(lowK,highK+1):
+                summand=k**(omega2)/(math.factorial(omega2-k)*math.factorial(k-1));
+                summand=summand*(math.comb(2*k, k)*math.comb(k,n-k));
+                Sum=Sum+summand;
+            kappa[n]=sign*Sum;
+        #Computing the inverse Laplace at t
+        log2t=math.log(2)/t;
+        qt=0;
+        for n in range(1,omega+1):
+            qt=qt+kappa[n]*(Qs(n*log2t));
+        qt=log2t*qt;
+        return qt;
 
 class Solver:
     ic = InitialConditions()
@@ -137,66 +212,104 @@ class Solver:
         n = self.ic.n
         alpha = np.zeros([n, n])
         h = np.zeros([n, n])
-        g = np.zeros([n, n])
         for i in range(n):
             for j in range(n):
-                alpha[i][j] = math.sqrt(self.ic.u[i][j](t)*self.ic.u[i][j](t)
-                                        + 4*self.ic.D[i][j](t)*(s+self.ic.R[i][j]))
-                g[i][j] = self.ic.u[i][j](t)*self.ic.l[i][j]/(2*self.ic.D[i][j](t))
-                h[i][j] = alpha[i][j]*self.ic.l[i][j]/(2*self.ic.D[i][j](t))
+                alpha[i][j] = math.sqrt(self.ic.u[i][j]*self.ic.u[i][j]
+                                        + 4*self.ic.D[i][j]*(s+self.ic.R[i][j]))
+                h[i][j] = alpha[i][j]*self.ic.l[i][j]/(2*self.ic.D[i][j])
         M = np.zeros([n, n])
         for i in range(n):
             for j in range(n):
                 if i == j:
                     sum = 0
                     for k in range(n):
-                        sum += self.ic.S[i][k](t)*(self.ic.u[i][k](t)/2 + alpha[i][k]/(2*math.tanh(h[i][j])))
+                        sum += self.ic.S[i][k]*(self.ic.u[i][k]/2 + alpha[i][k]/(2*math.tanh(h[i][j])))
                     M[i][j] = sum
                 else:
-                    M[i][j] = (-self.ic.S[i][j](t)
+                    M[i][j] = (-self.ic.S[i][j]
                                * alpha[i][j]
-                               * math.exp(-g[i][j])
+                               * math.exp(-self.ic.g[i][j])
                                / (2*math.sinh(h[i][j])))
         if not return_extra:
             return M
         else:
-            return M, alpha, h, g
+            return M, alpha, h
 
-    def beta_matrix(self, N, s, t=0, return_extra=False):
+    def beta_matrix(self, s, t=0, return_extra=False):
         n = self.ic.n
-        M, alpha, h, g = self.prog_matrix(s, t, return_extra)
+        M, alpha, h = self.prog_matrix(s, t, True)
         b = np.zeros([n, n])
         for i in range(n):
             for j in range(n):
                 b[i][j] = Solver.beta(s,
                                       self.ic.qx[i][j],
-                                      g[i][j],
+                                      self.ic.g[i][j],
                                       h[i][j],
                                       R[i][j],
-                                      self.ic.u[i][j](t),
-                                      self.ic.l[i][j],
+                                      self.ic.u[i][j],
                                       alpha[i][j],
-                                      N)
+                                      self.ic.N[i][j])
         if not return_extra:
             return b
         else:
-            return b, M, alpha, h, g
+            return b, M, alpha, h
+
+    def Lap_homogeneous(self, x_range, t):
+        Omega = 10
+        log2 = self.ftool.LOG2
+        # values of s for GS laplace inversion
+        s_range = np.array([n*log2/t for n in range(1,Omega+1)])
+        for s in s_range:
+            M, alpha, h, g=self.prog_matrix(s, t)
+            C = scipy.sparse.linalg.spsolve(M, I)
+            # fill the X_ij(s)
+            X = np.zeros_like(C)
+            for i in range(self.ic.n):
+                for j in adjacency[i]:
+                    X[i][j] = [C[i]*self.ic.S[i][j]]
+        #Define a funcion that computes Qij(x,s) using memory stored values
+        for i in range(self.ic.n):
+            for j in adjacency[i]:
+                pass
+
+        for x in x_range:
+            for s_ind in range(Omega):
+                pass
+
+            Qs_GS = np.zeros([self.ic.n,self.ic.n,Omega])
+            for i in range(self.ic.n):
+                for j in adjacency[i]:
+                    def Q(i, j, x, h, g):
+                        coeff1 = self.ic.l[i][j]-x/self.ic.l[i][j]
+                        coeff2 = x/self.ic.l[i][j]
+
+                        Sol = (X[i][j]*(math.sinh(coeff1*h)
+                                        / math.sinh(h)
+                                        )
+                               * math.exp(coeff2*g)
+                               + X[j][i]*(math.sinh(coeff2*h)
+                                          / math.sinh(h)
+                                          )
+                               * math.exp(-coeff1*g[i][j])
+                               )
+                        return Sol
+
+        pass
 
     @staticmethod
-    def beta(s, qx, g, h, R, u, l, alpha, N):
+    def beta(s, qx, g, h, R, u, alpha, N):
         sum = 0
         left_term = (math.exp(h/N)-math.exp(-g/N))*(alpha-u)
         right_term = (math.exp(-h/N)-math.exp(-g/N))*(alpha+u)
         denominator = (4*(s+R)*math.sinh(h))
         for n in range(1, N+1):
-            k = qx((n-1)*l/N)
+            # x_n=n*l/N
+            k = qx[n-1]
             coeff = k*math.exp(((1-n)/N)*g) / denominator
             sum += coeff*(math.exp(((N-n)/N)*h)*left_term
                           + math.exp(((n-N)/N)*h)*right_term)
         return sum
 
-
-    C = scipy.sparse.linalg.spsolve(M, I)
 
 
 # %%
@@ -239,7 +352,7 @@ for i in range(n):
             else:
                 return 0
         qx[i][j]=g
-        
+
 # fill q_ij(0,t)
 qt = [f_tools.zerof]*n
 for i in range(n):
@@ -252,7 +365,7 @@ for i in range(n):
 for i in range(n):
     for j in range(n):
         def D_ij(t=0):
-            return Dm + (u[i][j](t) * u[i][j](t)) * 1 / (48 * Dm)
+            return Dm + (u[i][j] * u[i][j]) * 1 / (48 * Dm)
 
         D[i][j] = D_ij
 
@@ -260,7 +373,7 @@ for i in range(n):
     for j in range(n):
         if adjacency[i][j]:
             def C_i(t=0):
-                return qt(t) / S[i][j](t)
+                return qt(t) / S[i][j]
             C[i] = C_i
             break
 
@@ -270,7 +383,7 @@ for i in range(n):
     def I_i(t=0):
         sum = 0
         for j in range(n):
-            sum = sum+u[i][j](t)*t/10
+            sum = sum+u[i][j]*t/10
         return sum
     I[i] = I_i
 
@@ -281,7 +394,7 @@ InitialConditions.evalmatrix(S, printmatrix=True)
 print("D=")
 InitialConditions.evalmatrix(D, printmatrix=True)
 print("q=")
-InitialConditions.evalvector(q, printvector=True)
+InitialConditions.evalvector(qx, printvector=True)
 print("I=")
 InitialConditions.evalvector(I, printvector=True)
 
@@ -295,4 +408,11 @@ b[0]=3.215
 x=scipy.sparse.linalg.spsolve(A,b)
 print(x)
 print(A.dot(x)-b)"""
+# %%
+import numpy as np
+x=np.zeros([2,2])+1
+y=np.zeros([2,2])+3
+z=np.array([[1,2],[4,8]])
+
+print(x*y/z)
 # %%
