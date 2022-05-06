@@ -40,7 +40,7 @@ class InitialConditions:
         net rate at which resource leaves node i at time t
     N : numpy matrix
         Number of grid points along x for edge i,j
-    adjacency : list of lists
+    adj : list of lists
         Adjacency matrix to efficiently tranverse the matrix.
         List entry i is a list of the indices j connected to i.
     qt : vector of functions
@@ -64,7 +64,7 @@ class InitialConditions:
         Evaluates a vector function at t
     """
     def __init__(self, qx, l, R, D, u, S, I,
-                 N, adjacency, qt, C=False):
+                 N, adj, qt, C=False):
         self.qx = qx    #Array of q at every Delta x when t=0
         self.l = l
         self.R = R
@@ -73,7 +73,7 @@ class InitialConditions:
         self.S = S
         self.I = I
         self.N = N  #this could be optional
-        self.adj = adjacency    #this could be optional
+        self.adj = adj    #this could be optional
         self.qt = qt    #This is also optional given I
         self.C = C  #not currently implemented
         if (not C) and (not I):
@@ -130,10 +130,10 @@ class InitialConditions:
 
 class f_tools:
     LOG2 = math.log(2)
+
     def __init__(self, num_roots=30):
         self.num_of_roots = num_roots
-        self.x_i, self.w_i = f_tools.lag_weights_roots(
-            self.num_of_roots)
+        self.x_i, self.w_i = f_tools.lag_weights_roots(self.num_of_roots)
 
     @staticmethod
     def zerof(t=0):
@@ -169,30 +169,32 @@ class f_tools:
     def GSinverse(self, Qs, t, omega):
         """
         My own implementation of GS method. omega must be an even integer,
-        t>0, and Qs the Laplace transform function.
+        t>0, and Qs the Laplace transform function evaluated at Omega nodes
+        of the form n*ln(2)/t
         """
         #finding the kappa coefficients
-        if(t==0 or omega%2!=0):
-            raise(ValueError("t=0 is not a valid input and omega must be even"));
-        kappa=[0]*(omega+1);
-        for n in range (1,omega+1):
-            omega2=omega//2;
-            sign= 1 if ((n+omega2)%2==0) else -1;
-            lowK=math.floor((n+1)/2);
-            highK=min(n,omega2);
-            Sum=0;
-            for k in range(lowK,highK+1):
-                summand=k**(omega2)/(math.factorial(omega2-k)*math.factorial(k-1));
-                summand=summand*(math.comb(2*k, k)*math.comb(k,n-k));
-                Sum=Sum+summand;
-            kappa[n]=sign*Sum;
-        #Computing the inverse Laplace at t
-        log2t=math.log(2)/t;
-        qt=0;
-        for n in range(1,omega+1):
-            qt=qt+kappa[n]*(Qs(n*log2t));
-        qt=log2t*qt;
-        return qt;
+        if(t == 0 or omega % 2 != 0):
+            raise(ValueError("t=0 is not a valid input and omega must be even"))
+        kappa = [0]*(omega+1)
+        for n in range(1, omega+1):
+            omega2 = omega//2
+            sign = 1 if ((n+omega2) % 2 == 0) else -1
+            lowK = math.floor((n+1)/2)
+            highK = min(n, omega2)
+            Sum = 0
+            for k in range(lowK, highK+1):
+                summand = k**(omega2)/(math.factorial(omega2-k)
+                                       * math.factorial(k-1))
+                summand = summand*(math.comb(2*k, k)*math.comb(k, n-k))
+                Sum = Sum+summand
+            kappa[n] = sign*Sum
+        # Computing the inverse Laplace at t
+        qt = 0
+        for n in range(1, omega+1):
+            qt = qt+kappa[n]*(Qs[n])
+        qt = (self.LOG2/t)*qt
+        return qt
+
 
 class Solver:
     ic = InitialConditions()
@@ -207,6 +209,7 @@ class Solver:
         I_lap = np.zeros(n)
         for i in range(n):
             I_lap[i] = self.ftool.Laplace(self.ic.I[i], s)
+        return I_lap
 
     def prog_matrix(self, s, t=0, return_extra=False):
         n = self.ic.n
@@ -254,47 +257,39 @@ class Solver:
         else:
             return b, M, alpha, h
 
-    def Lap_homogeneous(self, x_range, t):
-        Omega = 10
+    def homogeneous_lap(self, x_range, t, Omega=10):
         log2 = self.ftool.LOG2
+        ndim = self.ic.n
         # values of s for GS laplace inversion
-        s_range = np.array([n*log2/t for n in range(1,Omega+1)])
+        s_range = np.array([n*log2/t for n in range(1, Omega+1)])
+        Ms = np.zeros([Omega, ndim, ndim])
+        alphas = np.zeros([Omega, ndim, ndim])
+        hs = np.zeros([Omega, ndim, ndim])
+        Xs = np.zeros([Omega, ndim, ndim])
+        s_ind = 0
         for s in s_range:
-            M, alpha, h, g=self.prog_matrix(s, t)
-            C = scipy.sparse.linalg.spsolve(M, I)
+            # Solve the matrix system
+            Ms[s_ind], alphas[s_ind], hs[s_ind] = self.prog_matrix(s, t, True)
+            I = self.I_Lap_vector(s)
+            C = scipy.sparse.linalg.spsolve(Ms[s_ind], I)
             # fill the X_ij(s)
-            X = np.zeros_like(C)
-            for i in range(self.ic.n):
-                for j in adjacency[i]:
-                    X[i][j] = [C[i]*self.ic.S[i][j]]
-        #Define a funcion that computes Qij(x,s) using memory stored values
-        for i in range(self.ic.n):
-            for j in adjacency[i]:
-                pass
+            for i in range(ndim):
+                for j in self.ic.adj[i]:
+                    Xs[s_ind][i][j] = [C[i]*self.ic.S[i][j]]
+            s_ind = s_ind + 1
+        # Find qij(x,t) using stored values and GS algor
 
-        for x in x_range:
-            for s_ind in range(Omega):
-                pass
+        qs = np.zeros([ndim, ndim, self.ic.N[i][j]])
+        for i in range(ndim):
+            for j in self.ic.adj[i]:
+                x_ind = 0
+                for x in x_range:
+                    Qijxs = [self.Q(i, j, x, s_ind, Xs, hs) for s_ind in range(Omega)]
+                    qs[i][j][x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
+                    x_ind = x_ind+1
 
-            Qs_GS = np.zeros([self.ic.n,self.ic.n,Omega])
-            for i in range(self.ic.n):
-                for j in adjacency[i]:
-                    def Q(i, j, x, h, g):
-                        coeff1 = self.ic.l[i][j]-x/self.ic.l[i][j]
-                        coeff2 = x/self.ic.l[i][j]
 
-                        Sol = (X[i][j]*(math.sinh(coeff1*h)
-                                        / math.sinh(h)
-                                        )
-                               * math.exp(coeff2*g)
-                               + X[j][i]*(math.sinh(coeff2*h)
-                                          / math.sinh(h)
-                                          )
-                               * math.exp(-coeff1*g[i][j])
-                               )
-                        return Sol
 
-        pass
 
     @staticmethod
     def beta(s, qx, g, h, R, u, alpha, N):
@@ -310,7 +305,19 @@ class Solver:
                           + math.exp(((n-N)/N)*h)*right_term)
         return sum
 
-
+    def Q(self, i, j, x, s_ind, X, h):
+        coeff1 = self.ic.l[i][j]-x/self.ic.l[i][j]
+        coeff2 = x/self.ic.l[i][j]
+        Sol = (X[s_ind][i][j]*(math.sinh(coeff1*h[s_ind][i][j])
+                               / math.sinh(h[s_ind][i][j])
+                               )
+               * math.exp(coeff2*self.ic.g[i][j])
+               + X[s_ind][j][i]*(math.sinh(coeff2*h[s_ind][i][j])
+                                 / math.sinh(h[s_ind][i][j])
+                                 )
+               * math.exp(-coeff1*self.ic.g[i][j])
+               )
+        return Sol
 
 # %%
 # initial conditions setup
@@ -410,9 +417,12 @@ print(x)
 print(A.dot(x)-b)"""
 # %%
 import numpy as np
-x=np.zeros([2,2])+1
+x=np.zeros([5,2,2])+1
 y=np.zeros([2,2])+3
 z=np.array([[1,2],[4,8]])
 
-print(x*y/z)
+print(x[0])
+x[0]=y
+print(x[0])
+
 # %%
