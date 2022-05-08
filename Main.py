@@ -135,6 +135,13 @@ class InitialConditions:
                 else:
                     matrix[i,j] = matrix[j,i]
 
+    def fill_qx(self, lowerleft=False):
+        n = self.n
+        for i in range(n):
+            for j in range(n):
+                for k in range(self.N[i,j]):
+                    self.qx[j,i,self.N[i,j]-1-k] = self.qx[i,j,k]
+
     # useful functions for matrix and vector evaluation
     @staticmethod
     def evalmatrix(matrix_func, t=0.0, printmatrix=False):
@@ -222,7 +229,7 @@ class f_tools:
         # Computing the inverse Laplace at t
         qt = 0
         for n in range(1, omega+1):
-            qt = qt+kappa[n]*(Qs[n])
+            qt = qt+kappa[n]*(Qs[n-1])
         qt = (self.LOG2/t)*qt
         return qt
 
@@ -241,7 +248,7 @@ class Solver:
             I_lap[i] = self.ftool.Laplace(self.ic.I[i], s)
         return I_lap
 
-    def prog_matrix(self, s, t=0.0, return_extra=False):
+    def prog_matrix(self, s, return_extra=False):
         n = self.ic.n
         alpha = np.zeros([n, n])
         h = np.zeros([n, n])
@@ -255,7 +262,7 @@ class Solver:
             for j in range(n):
                 if i == j:
                     sum = 0
-                    for k in range(n):
+                    for k in self.ic.adj[i]:
                         sum += self.ic.S[i,k]*(self.ic.u[i,k]/2 + alpha[i,k]/(2*math.tanh(h[i,k])))
                     M[i][j] = sum
                 else:
@@ -268,9 +275,9 @@ class Solver:
         else:
             return M, alpha, h
 
-    def beta_matrix(self, s, t=0.0, return_extra=False):
+    def beta_matrix(self, s, return_extra=False):
         n = self.ic.n
-        M, alpha, h = self.prog_matrix(s, t, True)
+        M, alpha, h = self.prog_matrix(s, True)
         b = np.zeros([n, n])
         for i in range(n):
             for j in range(n):
@@ -281,7 +288,7 @@ class Solver:
                                       R[i,j],
                                       self.ic.u[i,j],
                                       alpha[i,j],
-                                      self.ic.N[i,j])
+                                      self.ic.N[i,j]-1)
         if not return_extra:
             return b
         else:
@@ -299,7 +306,7 @@ class Solver:
         s_ind = 0
         for s in s_range:
             # Solve the matrix system
-            Ms[s_ind], alphas[s_ind], hs[s_ind] = self.prog_matrix(s, t, True)
+            Ms[s_ind], alphas[s_ind], hs[s_ind] = self.prog_matrix(s, True)
             I = self.I_Lap_vector(s)
             C = scipy.sparse.linalg.spsolve(Ms[s_ind], I)
             # fill the X_ij(s)
@@ -307,23 +314,21 @@ class Solver:
                 for j in self.ic.adj[i]:
                     Xs[s_ind,i,j] = C[i]*self.ic.S[i,j]
             s_ind = s_ind + 1
-        # Find qij(x,t) using stored values and GS algor
-
+        # Find qij(x,t) using stored values and GS algor 
         qt = np.zeros([ndim, ndim, self.ic.N[i,j]])
         for i in range(ndim):
             for j in self.ic.adj[i]:
                 x = 0.0
-                dx = self.ic.l[i,j]/self.ic.N[i,j]
-                for x_ind in self.ic.N[i,j]:
+                dx = self.ic.l[i,j]/(self.ic.N[i,j]-1)
+                for x_ind in range(self.ic.N[i,j]):
                     Qijxs = [self.Q(i, j, x, s_ind, Xs, hs) for s_ind in range(Omega)]
                     qt[i,j,x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
                     x = x+dx
         return qt
 
-
-
     @staticmethod
     def beta(s, qx, g, h, R, u, alpha, N):
+        """Notice that N is the number of intervals, not grid points"""
         sum = 0
         left_term = (math.exp(h/N)-math.exp(-g/N))*(alpha-u)
         right_term = (math.exp(-h/N)-math.exp(-g/N))*(alpha+u)
@@ -340,12 +345,12 @@ class Solver:
         coeff1 = self.ic.l[i,j]-x/self.ic.l[i,j]
         coeff2 = x/self.ic.l[i,j]
         Sol = (X[s_ind,i,j]*(math.sinh(coeff1*h[s_ind,i,j])
-                               / math.sinh(h[s_ind,i,j])
-                               )
+                             / math.sinh(h[s_ind,i,j])
+                             )
                * math.exp(coeff2*self.ic.g[i,j])
                + X[s_ind,j,i]*(math.sinh(coeff2*h[s_ind,i,j])
-                                 / math.sinh(h[s_ind,i,j])
-                                 )
+                               / math.sinh(h[s_ind,i,j])
+                               )
                * math.exp(-coeff1*self.ic.g[i,j])
                )
         return Sol
@@ -355,27 +360,29 @@ class Solver:
 # ----- initial conditions setup
 # parameters to ease change network input
 n = 2
-Ngrid = 10
+Ngrid = 101
 uconst = 2
 Dm = 0.1
-uconst = 2
+Dconst = 1
+uconst = 0.0
+Rconst = 10.0
 lconst = 1
-Rconst = 0.1
 Sconst = 0.5
+Iconst = 0.3
 
 # Networks parameters
 qx = np.zeros([n, n, Ngrid])
 l = np.matrix([[0, lconst], [lconst, 0]], dtype=np.float64)
 R = np.matrix([[0, Rconst], [Rconst, 0]], dtype=np.float64)
-D = np.matrix([[0, Dm], [Dm, 0]], dtype=np.float64)  # diffusion outside of the network
-u = np.matrix([[0, uconst], [uconst, 0]], dtype=np.float64)  # velocities
-S = np.matrix([[0, Sconst], [Sconst, 0]], dtype=np.float64)  # cross sectional areas
+D = np.matrix([[0, Dconst], [Dconst, 0]], dtype=np.float64)
+u = np.matrix([[0, uconst], [uconst, 0]], dtype=np.float64)
+S = np.matrix([[0, Sconst], [Sconst, 0]], dtype=np.float64)
 
 # Fix a couple of stuff
 InitialConditions.antisymmetrize(u)
 InitialConditions.symmetrize(S)
 
-# fill q_ij(x,0) from 0 to l_ij
+# fill upper triangular part of q_ij(x,0) from 0 to l_ij
 k = 0.0
 for i in range(n):
     for j in range(i+1, n):
@@ -385,21 +392,38 @@ for i in range(n):
 I = [f_tools.zerof]*n
 
 def I_i(t=0):
-    return (n-1)*uconst/10
+    return Iconst
 for i in range(n):
     I[i] = I_i
-
+# %%
+# ----- Time evolution
+T=[0.001,0.003,0.005,0.007,0.01]
+#T=[0.1,0.3,0.5,0.7,1.0]
+IC_test=InitialConditions(qx, l, R, D, u, S, I)
+IC_test.fill_qx(); # not relevant anyway
+deltax=lconst/(Ngrid-1)
+x_range=np.array([k*deltax for k in range(Ngrid)])
+for t in T:
+    solve=Solver(IC_test);
+    q=solve.homogeneous_lap(t);
+    #plot the solutions
+    plt.plot(x_range, q[0,1], label=f"$t = {t}$");
+plt.title(f"edge (0,1) time evolution");
+plt.legend();
+plt.show();
+# %%
+# ----- difference between going back and forth
+"""t=0.1
 IC_test=InitialConditions(qx, l, R, D, u, S, I)
 solve=Solver(IC_test)
-q=solve.homogeneous_lap(0.2)
-# %%
-"""import numpy as np
-x=np.zeros([5,2,2])+1
-y=np.zeros([2,2])+3
-z=np.array([[1,2],[4,8]])
+q=solve.homogeneous_lap(t)
+#plot the solutions
+plt.plot(q[0,1],label=" q 0,1");
+plt.plot(np.flip(q[1,0]),label=" q 1,0");
+plt.title(f"edge (0,1) going back and forth after $t={t}$");
+plt.legend();
+plt.figure();
+plt.plot(np.abs(q[0,1]-q[1,0]));
+plt.title(f"difference $|q_{0,1}-q_{1,0}| at $t={t}$");
+plt.show()"""
 
-print(len(x))
-x[0]=y
-print(x[0])"""
-
-# %%
