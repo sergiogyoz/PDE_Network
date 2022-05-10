@@ -1,5 +1,7 @@
 # %%
 import math
+from multiprocessing.sharedctypes import Value
+from sre_parse import expand_template
 import numpy as np
 import matplotlib.pyplot as plt
 from sys import getsizeof
@@ -259,17 +261,17 @@ class Solver:
                 h[i,j] = alpha[i,j]*self.ic.l[i,j]/(2*self.ic.D[i,j])
         M = np.zeros([n, n])
         for i in range(n):
-            for j in range(n):
-                if i == j:
-                    sum = 0
-                    for k in self.ic.adj[i]:
-                        sum += self.ic.S[i,k]*(self.ic.u[i,k]/2 + alpha[i,k]/(2*math.tanh(h[i,k])))
-                    M[i][j] = sum
-                else:
-                    M[i][j] = (-self.ic.S[i,j]
-                               * alpha[i,j]
-                               * math.exp(-self.ic.g[i,j])
-                               / (2*math.sinh(h[i,j])))
+            # diagonal elements
+            sum = 0
+            for k in self.ic.adj[i]:
+                sum += self.ic.S[i,k]*(self.ic.u[i,k]/2 + alpha[i,k]/(2*math.tanh(h[i,k])))
+            M[i][i] = sum
+            # non diagonal elements
+            for j in self.ic.adj[i]:
+                M[i][j] = (-self.ic.S[i,j]
+                            * alpha[i,j]
+                            * math.exp(-self.ic.g[i,j])
+                            / (2*math.sinh(h[i,j])))
         if not return_extra:
             return M
         else:
@@ -280,7 +282,7 @@ class Solver:
         M, alpha, h = self.prog_matrix(s, True)
         b = np.zeros([n, n])
         for i in range(n):
-            for j in range(n):
+            for j in self.ic.adj[i]:
                 b[i][j] = Solver.beta(s,
                                       self.ic.qx[i,j],
                                       self.ic.g[i,j],
@@ -321,6 +323,43 @@ class Solver:
                 x = 0.0
                 dx = self.ic.l[i,j]/(self.ic.N[i,j]-1)
                 for x_ind in range(self.ic.N[i,j]):
+                    Qijxs = [self.Q_homo(i, j, x, s_ind, Xs, hs) for s_ind in range(Omega)]
+                    qt[i,j,x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
+                    x = x+dx
+        return qt
+
+    def non_homogeneous_lap(self, t, Omega=10):
+        log2 = self.ftool.LOG2
+        ndim = self.ic.n
+        # values of s for GS laplace inversion
+        s_range = np.array([n*log2/t for n in range(1, Omega+1)])
+        Ms = np.zeros([Omega, ndim, ndim])
+        alphas = np.zeros([Omega, ndim, ndim])
+        hs = np.zeros([Omega, ndim, ndim])
+        Xs = np.zeros([Omega, ndim, ndim])
+        betas = np.zeros([Omega, ndim, ndim])
+        s_ind = 0
+        for s in s_range:
+            # fill out the betas, propagation matrix, alpha, and h
+            betas[s_ind], Ms[s_ind], alphas[s_ind], hs[s_ind] = (
+                self.beta_matrix(s, True))
+            I = self.I_Lap_vector(s)
+            beta_i=np.sum(betas[s_ind], axis=1)
+            # Solve the matrix system
+            C = scipy.sparse.linalg.spsolve(Ms[s_ind], I+beta_i)
+            # fill the X_ij(s)
+            for i in range(ndim):
+                for j in self.ic.adj[i]:
+                    Xs[s_ind,i,j] = C[i]*self.ic.S[i,j]
+            s_ind = s_ind + 1
+
+        # Find qij(x,t) using stored values and GS algor 
+        qt = np.zeros([ndim, ndim, self.ic.N[i,j]])
+        for i in range(ndim):
+            for j in self.ic.adj[i]:
+                x = 0.0
+                dx = self.ic.l[i,j]/(self.ic.N[i,j]-1)
+                for x_ind in range(self.ic.N[i,j]):
                     Qijxs = [self.Q(i, j, x, s_ind, Xs, hs) for s_ind in range(Omega)]
                     qt[i,j,x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
                     x = x+dx
@@ -328,21 +367,36 @@ class Solver:
 
     @staticmethod
     def beta(s, qx, g, h, R, u, alpha, N):
-        """Notice that N is the number of intervals, not grid points"""
+        """N is the number of INTERVALS, not grid points"""
         sum = 0
         left_term = (math.exp(h/N)-math.exp(-g/N))*(alpha-u)
         right_term = (math.exp(-h/N)-math.exp(-g/N))*(alpha+u)
         denominator = (4*(s+R)*math.sinh(h))
         for n in range(1, N+1):
-            # x_n=n*l/N
+            # x_n=(n-1)*l/N since index of qx starts at 0
             k = qx[n-1]
             coeff = k*math.exp(((1-n)/N)*g) / denominator
             sum += coeff*(math.exp(((N-n)/N)*h)*left_term
                           + math.exp(((n-N)/N)*h)*right_term)
         return sum
 
-    def Q(self, i, j, x, s_ind, X, h):
-        coeff1 = self.ic.l[i,j]-x/self.ic.l[i,j]
+    @staticmethod
+    def f(n, k, g, h, D, u, alpha, N):
+        """
+        N is the number of intervals, not grid points. 
+        Using the convention k if l*(n-1)/N<=x<l*n/N
+        """
+        if n < 1:
+            raise ValueError(f"n={n} must be >=1")
+        leftcoeff = (2*D*k*math.exp(g+h))/(alpha*(u+alpha))
+        rightcoeff = (2*D*k*math.exp(g+h))/(alpha*(u-alpha))
+        left_term = math.exp(-(n/N)*(g+h))-math.exp(-((n-1)/N)*(g+h))
+        right_term = math.exp((n/N)*(g-h))-math.exp(((n-1)/N)*(g-h))
+        Sol = leftcoeff*left_term-rightcoeff*right_term
+        return Sol
+
+    def Q_homo(self, i, j, x, s_ind, X, h):
+        coeff1 = (self.ic.l[i,j]-x)/self.ic.l[i,j]
         coeff2 = x/self.ic.l[i,j]
         Sol = (X[s_ind,i,j]*(math.sinh(coeff1*h[s_ind,i,j])
                              / math.sinh(h[s_ind,i,j])
@@ -355,13 +409,41 @@ class Solver:
                )
         return Sol
 
+    def Q_non_homo(self, i, j, x, x_ind, s_ind, alpha, beta, X, h):
+        """
+        if n = x_ind+1 then x=l*(n-1)/N
+        """
+        n = x_ind+1
+        f_ijxs=Solver.f(n, 
+                        self.ic.qx[i, j, x_ind],
+                        self.ic.g[i,j],
+                        h[s_ind,i,j],
+                        self.ic.D[i,j],
+                        self.ic.u[i,j],
+                        alpha[s_ind,i,j],
+                        self.ic.N[i,j]-1)
+        A = (beta[s_ind,i,j]/alpha[s_ind,i,j]
+            + (X[s_ind,j,i]*math.exp(-self.ic.g[i,j])
+               - X[s_ind,i,j]*math.exp(-h[s_ind,i,j])
+               )
+               / (2*math.sinh(h[s_ind,i,j])) 
+            )
+        B = (-beta[s_ind,i,j]/alpha[s_ind,i,j]
+            + (X[s_ind,i,j]*math.exp(h[s_ind,i,j])
+               - X[s_ind,j,i]*math.exp(-self.ic.g[s_ind,i,j])
+               )
+               / (2*math.sinh(h[s_ind,i,j]))
+            )
+        expA = math.exp((self.ic.g[i,j]+h[s_ind,i,j])*(x/self.ic.l[i,j]))
+        expB = math.exp((self.ic.g[i,j]-h[s_ind,i,j])*(x/self.ic.l[i,j]))
+        Sol = A*math.exp(expA)+B*math.exp(expB)+f_ijxs
+        return Sol
 
 # %%
 # ----- initial conditions setup
 # parameters to ease change network input
 n = 2
 Ngrid = 101
-uconst = 2
 Dm = 0.1
 Dconst = 1
 uconst = 0.0
@@ -427,3 +509,52 @@ plt.plot(np.abs(q[0,1]-q[1,0]));
 plt.title(f"difference $|q_{0,1}-q_{1,0}| at $t={t}$");
 plt.show()"""
 
+# %%
+# ----- Testing against an exact solution
+
+n = 2
+Ngrid = 11
+Dm = 0.1
+Dconst = 1
+uconst = 0.0
+Rconst = 0.0
+lconst = math.pi
+Sconst = 1
+
+# Networks parameters
+qx = np.zeros([n, n, Ngrid])
+l = np.matrix([[0, lconst], [lconst, 0]], dtype=np.float64)
+R = np.matrix([[0, Rconst], [Rconst, 0]], dtype=np.float64)
+D = np.matrix([[0, Dconst], [Dconst, 0]], dtype=np.float64)
+u = np.matrix([[0, uconst], [uconst, 0]], dtype=np.float64)
+S = np.matrix([[0, Sconst], [Sconst, 0]], dtype=np.float64)
+
+# Fix a couple of stuff
+InitialConditions.antisymmetrize(u)
+InitialConditions.symmetrize(S)
+
+# fill upper triangular part of q_ij(x,0) from 0 to l_ij
+deltax=math.pi/(Ngrid-1)
+x_range=np.array([k*deltax for k in range(Ngrid)])
+for i in range(n):
+    for j in range(i+1, n):
+        qx[i,j] = np.sin(x_range)
+
+# We need I_i(t) (net rate resource leaves i)
+I = [f_tools.zerof]*n
+
+def I_i(t):
+    return -math.exp(-t)
+
+for i in range(n):
+    I[i] = I_i
+# %%
+import numpy as np
+A=np.zeros([2,3])
+for i in range (2):
+    for j in range (3):
+        A[i,j]=i
+
+Ai=np.sum(A,axis=0)
+Aj=np.sum(A,axis=1)
+# %%
