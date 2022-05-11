@@ -635,10 +635,14 @@ for i in range(n):
 T=[0.001, 0.01, 0.1, 1, 10]
 #T=[0.1,0.3,0.5,0.7,1.0]
 IC_test=InitialConditions(qx, l, R, D, u, S, I)
+qsum=np.zeros([2,len(T),Ngrid])
 # solve for qhat at different times
+t_ind=0
 for t in T:
     solve=Solver(IC_test)
     qhat=solve.non_homogeneous_lap(t)
+    qsum[0,t_ind]=qhat[0,1]
+    t_ind+=1
     #plot the solutions
     plt.plot(x_range, qhat[0,1], label=f"$t = {t}$")
 plt.title(f"qhat edge (0,1) time evolution")
@@ -646,12 +650,40 @@ plt.legend()
 plt.show()
 # Solve for q tilde at different times
 plt.figure()
+t_ind=0
 for t in T:
     solve=Solver(IC_test)
     qtilde=solve.q_tilde(t)
+    qsum[1,t_ind]=qtilde[0,1]
+    t_ind+=1
     #plot the solutions
     plt.plot(x_range, qtilde[0,1], label=f"$t = {t}$")
 plt.title(f"qtilde edge (0,1) time evolution")
 plt.legend()
 plt.show()
+# Plot the solution against the exact solution
+plt.figure()
+t_ind=0
+for t in T:
+    #plot the solutions
+    plt.plot(x_range,
+             qsum[0,t_ind]+qsum[1,t_ind],
+             label=f"$t = {t}$")
+    t_ind+=1
+plt.title(f"q=qtilde+qhat edge (0,1) time evolution")
+plt.legend()
+plt.show()
+# Plot exact solutions to compare
+for t in T:
+    #plot the solutions
+    plt.plot(x_range,
+             math.exp(-t)*np.sin(x_range),
+             label=f"$t = {t}$")
+plt.title(f"exact solution edge (0,1) time evolution")
+plt.legend()
+plt.show()
+
+
+
+
 # %%
