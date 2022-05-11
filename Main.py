@@ -368,6 +368,22 @@ class Solver:
                     x = x+dx
         return qt
 
+    def q_tilde(self, t):
+        qt = np.zeros_like(self.ic.qx)
+        n = self.ic.n
+        for i in range(n):
+            for j in self.ic.adj[i]:
+                lambdas, As, M= self.bound_parameters(i, j, t)
+                Coeff = As*np.exp(lambdas*t)
+                ms = np.array([m for m in range(1,M+1)])
+                N = self.ic.N[i,j]-1
+                dx = self.ic.l[i,j]/N  # x=(n-1)*dx= x_ind*dx
+                for x_ind in range(N+1):
+                    sines = np.sin(ms*math.pi*x_ind/ self.ic.l[i,j])
+                    q[i,j,x_ind]= np.sum(As*np.exp(lambdas)*sines)
+
+
+
     @staticmethod
     def beta(s, qx, g, h, R, u, alpha, N): # re-checked
         """N is the number of INTERVALS, not grid points"""
@@ -477,6 +493,7 @@ class Solver:
                )
         return Sol
 
+    # Not working, not really used but it would be good for verification
     def Q_non_homo(self, i, j, x, x_ind, s_ind, alpha, beta, X, h):
         """
         if n = x_ind+1 then x=l*(n-1)/N
