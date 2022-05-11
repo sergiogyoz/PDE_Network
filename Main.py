@@ -374,15 +374,13 @@ class Solver:
         for i in range(n):
             for j in self.ic.adj[i]:
                 lambdas, As, M= self.bound_parameters(i, j, t)
-                Coeff = As*np.exp(lambdas*t)
                 ms = np.array([m for m in range(1,M+1)])
                 N = self.ic.N[i,j]-1
                 dx = self.ic.l[i,j]/N  # x=(n-1)*dx= x_ind*dx
                 for x_ind in range(N+1):
-                    sines = np.sin(ms*math.pi*x_ind/ self.ic.l[i,j])
-                    q[i,j,x_ind]= np.sum(As*np.exp(lambdas)*sines)
-
-
+                    sines = np.sin(ms*math.pi*x_ind*dx/ self.ic.l[i,j])
+                    qt[i,j,x_ind]= np.sum(As*np.exp(lambdas*t)*sines)
+        return qt
 
     @staticmethod
     def beta(s, qx, g, h, R, u, alpha, N): # re-checked
@@ -462,13 +460,12 @@ class Solver:
         lam = self.lambda_ij(M, i, j)
         # check condition
         while True:
-            iter += 1
             lambdas.append(lam)
             e2lambt = math.exp(lam*t)
             sum += e2lambt
             if (e2lambt < eps*M*c*sum):
                 break
-            if M >= 50:
+            if M >= 100:
                 print("did not converge, stop at M=50")
                 break
             #if not then increase M and try again
@@ -638,14 +635,23 @@ for i in range(n):
 T=[0.001, 0.01, 0.1, 1, 10]
 #T=[0.1,0.3,0.5,0.7,1.0]
 IC_test=InitialConditions(qx, l, R, D, u, S, I)
-# solve for the same initial conditions at different times
+# solve for qhat at different times
 for t in T:
-    solve=Solver(IC_test);
-    q=solve.non_homogeneous_lap(t);
+    solve=Solver(IC_test)
+    qhat=solve.non_homogeneous_lap(t)
     #plot the solutions
-    plt.plot(x_range, q[0,1], label=f"$t = {t}$");
-plt.title(f"edge (0,1) time evolution");
-plt.legend();
-plt.show();
-y=1
+    plt.plot(x_range, qhat[0,1], label=f"$t = {t}$")
+plt.title(f"qhat edge (0,1) time evolution")
+plt.legend()
+plt.show()
+# Solve for q tilde at different times
+plt.figure()
+for t in T:
+    solve=Solver(IC_test)
+    qtilde=solve.q_tilde(t)
+    #plot the solutions
+    plt.plot(x_range, qtilde[0,1], label=f"$t = {t}$")
+plt.title(f"qtilde edge (0,1) time evolution")
+plt.legend()
+plt.show()
 # %%
