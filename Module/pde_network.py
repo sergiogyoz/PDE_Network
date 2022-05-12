@@ -1,17 +1,9 @@
-# %%
 import math
-from multiprocessing.sharedctypes import Value
-from sre_parse import expand_template
 import numpy as np
-import matplotlib.pyplot as plt
-from sys import getsizeof
-
 # Laplace transform uses Gauss–Laguerre quadrature
 from sympy import poly, laguerre
 from sympy.abc import x
-
 # sparse linear solver
-import scipy.sparse
 import scipy.sparse.linalg
 
 
@@ -87,8 +79,8 @@ class InitialConditions:
                     self.adj[i].append(j)
         self.g = np.divide(u*l, 2*D, out=np.zeros_like(u), where=(D != 0))
 
-        self.qt = qt    #This should be optional given I
-        self.C = C  #not currently implemented
+        self.qt = qt    # Not currently implemented. Optional
+        self.C = C  # Not currently implemented
         if (not C) and (not I):
             raise(ValueError("No concentration C or current I given"))
 
@@ -116,7 +108,6 @@ class InitialConditions:
             print("Adjacency list= ")
             print( self.adj[:stop_at], extra_text)
 
-
     @staticmethod
     def antisymmetrize(matrix, lowerleft=False):
         n = len(matrix)
@@ -140,7 +131,7 @@ class InitialConditions:
     def fill_qx(self, lowerleft=False):
         n = self.n
         for i in range(n):
-            for j in range(n):
+            for j in range(i+1,n):
                 for k in range(self.N[i,j]):
                     self.qx[j,i,self.N[i,j]-1-k] = self.qx[i,j,k]
 
@@ -168,26 +159,12 @@ class InitialConditions:
         return vec
 
 
-class f_tools:
+class _f_tools:
     LOG2 = math.log(2)
 
     def __init__(self, num_roots=30):
         self.num_of_roots = num_roots
-        self.x_i, self.w_i = f_tools.lag_weights_roots(self.num_of_roots)
-
-    @staticmethod
-    def zerof(t=0):
-        return 0
-
-    @staticmethod
-    def onef(t=0):
-        return 1
-
-    @staticmethod
-    def consf(constant):
-        def cons(t=0):
-            return constant
-        return cons
+        self.x_i, self.w_i = _f_tools.lag_weights_roots(self.num_of_roots)
 
     @staticmethod
     def lag_weights_roots(n):
@@ -235,22 +212,28 @@ class f_tools:
         qt = (self.LOG2/t)*qt
         return qt
 
+    def zerof(t=0):
+        return 0
+
 
 class Solver:
+    """
+    A solver takes initial conditions and finds qhat and q tilde
+    """
     ic = InitialConditions()
-    ftool = f_tools()
+    ftool = _f_tools()
     def __init__(self, initial_conditions):
         self.ic = initial_conditions
-        self.ftool = f_tools()
+        self.ftool = _f_tools()
 
-    def I_Lap_vector(self, s):# verified
+    def I_Lap_vector(self, s):  # verified
         n = self.ic.n
         I_lap = np.zeros(n)
         for i in range(n):
             I_lap[i] = self.ftool.Laplace(self.ic.I[i], s)
         return I_lap
 
-    def prog_matrix(self, s, return_extra=False):# verified
+    def prog_matrix(self, s, return_extra=False):  # verified
         n = self.ic.n
         alpha = np.zeros([n, n])
         h = np.zeros([n, n])
@@ -283,7 +266,7 @@ class Solver:
         b = np.zeros([n, n])
         for i in range(n):
             for j in self.ic.adj[i]:
-                b[i][j] = Solver.beta(s,
+                b[i][j] = Solver._beta(s,
                                       self.ic.qx[i,j],
                                       self.ic.g[i,j],
                                       h[i,j],
@@ -323,7 +306,7 @@ class Solver:
                 x = 0.0
                 dx = self.ic.l[i,j]/(self.ic.N[i,j]-1)
                 for x_ind in range(self.ic.N[i,j]):
-                    Qijxs = [self.Q_homo(i, j, x, s_ind, Xs, hs) for s_ind in range(Omega)]
+                    Qijxs = [self._Q_homo(i, j, x, s_ind, Xs, hs) for s_ind in range(Omega)]
                     qt[i,j,x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
                     x = x+dx
         return qt
@@ -363,7 +346,7 @@ class Solver:
                 for x_ind in range(self.ic.N[i,j]):
                     Qijxs = [0.0]*Omega
                     for s_ind in range(Omega):
-                        Qijxs[s_ind] = self.Q_homo(i, j, x, s_ind, Xs, hs)
+                        Qijxs[s_ind] = self._Q_homo(i, j, x, s_ind, Xs, hs)
                     qt[i,j,x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
                     x = x+dx
         return qt
@@ -373,7 +356,7 @@ class Solver:
         n = self.ic.n
         for i in range(n):
             for j in self.ic.adj[i]:
-                lambdas, As, M= self.bound_parameters(i, j, t)
+                lambdas, As, M= self._bound_parameters(i, j, t)
                 ms = np.array([m for m in range(1,M+1)])
                 N = self.ic.N[i,j]-1
                 dx = self.ic.l[i,j]/N  # x=(n-1)*dx= x_ind*dx
@@ -383,7 +366,7 @@ class Solver:
         return qt
 
     @staticmethod
-    def beta(s, qx, g, h, R, u, alpha, N): # re-checked
+    def _beta(s, qx, g, h, R, u, alpha, N): # re-checked
         """N is the number of INTERVALS, not grid points"""
         sum = 0
         left_term = (math.exp(h/N)-math.exp(-g/N))*(alpha-u)
@@ -398,7 +381,7 @@ class Solver:
         return sum
 
     @staticmethod
-    def f(n, k, g, h, D, u, alpha, N):# verified
+    def _f(n, k, g, h, D, u, alpha, N):  # verified
         """
         k= qij(x_ind)
         N is the number of intervals, not grid points.
@@ -413,7 +396,7 @@ class Solver:
         Sol = leftcoeff*left_term - rightcoeff*right_term
         return Sol
 
-    def lambda_ij(self, m, i, j):
+    def _lambda_ij(self, m, i, j):
         L = -(m*m*self.ic.D[i,j]*math.pi*math.pi
                 /(self.ic.l[i,j]*self.ic.l[i,j])
               + self.ic.u[i,j]*self.ic.u[i,j]
@@ -422,7 +405,7 @@ class Solver:
               )
         return L
     
-    def mu_ij(self, m, i, j):
+    def _mu_ij(self, m, i, j):
         M = (8*self.ic.D[i,j]*self.ic.D[i,j]*math.pi*m
              / (self.ic.u[i,j]*self.ic.u[i,j]*self.ic.l[i,j]*self.ic.l[i,j]
                 + 4*self.ic.D[i,j]*self.ic.D[i,j]*math.pi*math.pi*m*m
@@ -430,9 +413,9 @@ class Solver:
              )
         return M
 
-    def A(self, m, i, j):
+    def _A(self, m, i, j):
         N = self.ic.N[i,j]-1
-        mu = self.mu_ij(m, i, j)
+        mu = self._mu_ij(m, i, j)
         sign=1 if m%2==0 else -1
         term1 = mu*(self.ic.qx[i,j,0]
                     - sign*self.ic.qx[i,j,N-1]*math.exp(-self.ic.g[i,j]))
@@ -446,7 +429,7 @@ class Solver:
             sum += expg*diff*trig
         return term1 + mu*sum
 
-    def bound_parameters(self, i, j, t, eps=10**(-4.5)):
+    def _bound_parameters(self, i, j, t, eps=10**(-4.5)):
         """
         Returns A_m and lambda_m f and M so that the relative 
         error is less than eps
@@ -457,7 +440,7 @@ class Solver:
         sum = 0
         c = 2*math.pi*math.pi*self.ic.D[i,j]*t/(self.ic.l[i,j]*self.ic.l[i,j])
         # first term
-        lam = self.lambda_ij(M, i, j)
+        lam = self._lambda_ij(M, i, j)
         # check condition
         while True:
             lambdas.append(lam)
@@ -470,13 +453,13 @@ class Solver:
                 break
             #if not then increase M and try again
             M += 1
-            lam = self.lambda_ij(M, i, j)
+            lam = self._lambda_ij(M, i, j)
         # calculate and store the coefficients
         lambdas = np.array(lambdas)
-        As = np.array([ self.A(m, i, j) for m in range(1, M+1) ])
+        As = np.array([ self._A(m, i, j) for m in range(1, M+1) ])
         return lambdas, As, M
 
-    def Q_homo(self, i, j, x, s_ind, X, h):
+    def _Q_homo(self, i, j, x, s_ind, X, h):
         coeff1 = (self.ic.l[i,j]-x)/self.ic.l[i,j]
         coeff2 = x/self.ic.l[i,j]
         Sol = (X[s_ind,i,j]*(math.sinh(coeff1*h[s_ind,i,j])
@@ -491,12 +474,12 @@ class Solver:
         return Sol
 
     # Not working, not really used but it would be good for verification
-    def Q_non_homo(self, i, j, x, x_ind, s_ind, alpha, beta, X, h):
+    def _Q_non_homo(self, i, j, x, x_ind, s_ind, alpha, beta, X, h):
         """
         if n = x_ind+1 then x=l*(n-1)/N
         """
         n = x_ind+1
-        f_ijxs=Solver.f(n, 
+        f_ijxs=Solver._f(n, 
                         self.ic.qx[i, j, x_ind],
                         self.ic.g[i,j],
                         h[s_ind,i,j],
@@ -521,169 +504,4 @@ class Solver:
         Sol = A*expA+B*expB+f_ijxs
         return Sol
 
-# %%
-# ----- initial conditions setup
-# parameters to ease change network input
-"""n = 2
-Ngrid = 101
-Dm = 0.1
-Dconst = 1
-uconst = 0.0
-Rconst = 10.0
-lconst = 1
-Sconst = 0.5
-Iconst = 0.3
 
-# Networks parameters
-qx = np.zeros([n, n, Ngrid]) #not used on the homogeneous solution
-l = np.matrix([[0, lconst], [lconst, 0]], dtype=np.float64)
-R = np.matrix([[0, Rconst], [Rconst, 0]], dtype=np.float64)
-D = np.matrix([[0, Dconst], [Dconst, 0]], dtype=np.float64)
-u = np.matrix([[0, uconst], [uconst, 0]], dtype=np.float64)
-S = np.matrix([[0, Sconst], [Sconst, 0]], dtype=np.float64)
-
-# Fix a couple of stuff
-InitialConditions.antisymmetrize(u)
-InitialConditions.symmetrize(S)
-
-# fill upper triangular part of q_ij(x,0) from 0 to l_ij
-k = 0.0
-for i in range(n):
-    for j in range(i+1, n):
-        qx[i,j] = [k for x in range(Ngrid)]
-        qx[j,i] = np.flip(qx[i,j])
-
-# We need I_i(t) (net rate resource leaves i)
-I = [f_tools.zerof]*n
-
-def I_i(t=0):
-    return Iconst
-for i in range(n):
-    I[i] = I_i"""
-# %%
-# ----- Time evolution
-"""T=[0.001,0.003,0.005,0.007,0.01]
-#T=[0.1,0.3,0.5,0.7,1.0]
-IC_test=InitialConditions(qx, l, R, D, u, S, I)
-deltax=lconst/(Ngrid-1)
-x_range=np.array([k*deltax for k in range(Ngrid)])
-for t in T:
-    solve=Solver(IC_test);
-    q=solve.homogeneous_lap(t);
-    #plot the solutions
-    plt.plot(x_range, q[0,1], label=f"$t = {t}$");
-plt.title(f"edge (0,1) time evolution");
-plt.legend();
-plt.show();"""
-# %%
-# ----- difference between going back and forth
-"""t=0.1
-IC_test=InitialConditions(qx, l, R, D, u, S, I)
-solve=Solver(IC_test)
-q=solve.homogeneous_lap(t)
-#plot the solutions
-plt.plot(q[0,1],label=" q 0,1");
-plt.plot(np.flip(q[1,0]),label=" q 1,0");
-plt.title(f"edge (0,1) going back and forth after $t={t}$");
-plt.legend();
-plt.figure();
-plt.plot(np.abs(q[0,1]-q[1,0]));
-plt.title(f"difference $|q_{0,1}-q_{1,0}| at $t={t}$");
-plt.show()"""
-
-# %%
-# ----- Testing non homogeneous against an exact solution
-
-n = 2
-Ngrid = 101
-#Dm = 0.1
-Dconst = 1
-uconst = 0.0
-Rconst = 0.0
-lconst = math.pi
-Sconst = 1
-
-# Networks parameters
-qx = np.zeros([n, n, Ngrid])
-l = np.matrix([[0, lconst], [lconst, 0]], dtype=np.float64)
-R = np.matrix([[0, Rconst], [Rconst, 0]], dtype=np.float64)
-D = np.matrix([[0, Dconst], [Dconst, 0]], dtype=np.float64)
-u = np.matrix([[0, uconst], [-uconst, 0]], dtype=np.float64)
-S = np.matrix([[0, Sconst], [Sconst, 0]], dtype=np.float64)
-
-# Fix a couple of stuff
-InitialConditions.antisymmetrize(u)
-InitialConditions.symmetrize(S)
-
-# fill upper triangular part of q_ij(x,0) and flip for q_ji(x,0)
-deltax=math.pi/(Ngrid-1)
-x_range=np.array([k*deltax for k in range(Ngrid)])
-for i in range(n):
-    for j in range(i+1, n):
-        qx[i,j] = np.sin(x_range)+1
-        qx[j,i] = np.flip(qx[i,j])
-
-# We need I_i(t) (net rate resource leaves i)
-I = [f_tools.zerof]*n
-def I_i(t):
-    return -math.exp(-t)
-for i in range(n):
-    I[i] = I_i
-
-# start the testing
-
-T=[0.001, 0.01, 0.1, 1, 10]
-#T=[0.1,0.3,0.5,0.7,1.0]
-IC_test=InitialConditions(qx, l, R, D, u, S, I)
-qsum=np.zeros([2,len(T),Ngrid])
-# solve for qhat at different times
-t_ind=0
-for t in T:
-    solve=Solver(IC_test)
-    qhat=solve.non_homogeneous_lap(t)
-    qsum[0,t_ind]=qhat[0,1]
-    t_ind+=1
-    #plot the solutions
-    plt.plot(x_range, qhat[0,1], label=f"$t = {t}$")
-plt.title(f"qhat edge (0,1) time evolution")
-plt.legend()
-plt.show()
-# Solve for q tilde at different times
-plt.figure()
-t_ind=0
-for t in T:
-    solve=Solver(IC_test)
-    qtilde=solve.q_tilde(t)
-    qsum[1,t_ind]=qtilde[0,1]
-    t_ind+=1
-    #plot the solutions
-    plt.plot(x_range, qtilde[0,1], label=f"$t = {t}$")
-plt.title(f"qtilde edge (0,1) time evolution")
-plt.legend()
-plt.show()
-# Plot the solution against the exact solution
-plt.figure()
-t_ind=0
-for t in T:
-    #plot the solutions
-    plt.plot(x_range,
-             qsum[0,t_ind]+qsum[1,t_ind],
-             label=f"$t = {t}$")
-    t_ind+=1
-plt.title(f"q=qtilde+qhat edge (0,1) time evolution")
-plt.legend()
-plt.show()
-# Plot exact solutions to compare
-for t in T:
-    #plot the solutions
-    plt.plot(x_range,
-             math.exp(-t)*np.sin(x_range),
-             label=f"$t = {t}$")
-plt.title(f"exact solution edge (0,1) time evolution")
-plt.legend()
-plt.show()
-
-
-
-
-# %%
