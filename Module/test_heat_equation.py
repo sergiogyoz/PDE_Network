@@ -85,7 +85,7 @@ plt.show()
 for t in T:
     # plot the solutions
     plt.plot(x_range,
-             math.exp(-t)*np.sin(x_range),
+             math.exp(-t)*np.sin(x_range)+1,
              label=f"$t = {t}$")
 plt.title(f"exact solution edge (0,1) time evolution")
 plt.legend()
