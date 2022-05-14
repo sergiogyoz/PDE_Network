@@ -8,7 +8,7 @@ from pde_network import InitialConditions
 from pde_network import _f_tools
 from pde_network import Solver
 
-# ----- Testing non homogeneous against an exact solution
+# ----- Testing ammount of resource against an exact solution
 n = 2
 Ngrid = 101
 Dconst = 1
@@ -16,6 +16,7 @@ uconst = 0.0
 Rconst = 0.0
 lconst = math.pi
 Sconst = 1
+Omega = 6
 
 # Networks parameters
 qx = np.zeros([n, n, Ngrid])
@@ -40,6 +41,10 @@ def I_i(t):
 for i in range(n):
     I[i] = I_i
 
+# the definition of y and z are mean values
+# so we need to multiply by l/N for the actual integral
+scale=lconst/(Ngrid-1)
+
 # start the testing
 T=[0.001, 0.01, 0.1, 1, 10]
 x_range=np.array([k*deltax for k in range(Ngrid-1)])
@@ -51,11 +56,11 @@ qsum=np.zeros([2,len(T),Ngrid-1])
 t_ind=0
 for t in T:
     solve=Solver(IC_test)
-    qhat=solve.resource_y(t)
+    qhat=solve.resource_y(t, Omega)
     qsum[0,t_ind]=qhat[0,1]
     #plot the solutions
     plt.plot(x_range, qhat[0,1], label=f"$t = {t}$")
-    print("Int qhat at t = ", np.sum(qhat[0,1]))
+    print("Int qhat at t = ", scale*np.sum(qhat[0,1]))
     t_ind+=1
 plt.title(f"$\int \hat q$ edge (0,1) time evolution")
 plt.legend()
@@ -66,11 +71,11 @@ plt.figure()
 t_ind=0
 for t in T:
     solve=Solver(IC_test)
-    qtilde=solve.resource_z(t)
+    qtilde=solve.resource_z(t, 10**(-0.45*Omega))
     qsum[1,t_ind]=qtilde[0,1]
     #plot the solutions
     plt.plot(x_range, qtilde[0,1], label=f"$t = {t}$")
-    print("Int qtilde at t = ", np.sum(qtilde[0,1]))
+    print("Int qtilde at t = ", scale*np.sum(qtilde[0,1]))
     t_ind+=1
 plt.title(f"$\int qtil$ edge (0,1) time evolution")
 plt.legend()
@@ -84,7 +89,7 @@ for t in T:
     plt.plot(x_range,
              qsum[0,t_ind]+qsum[1,t_ind],
              label=f"$t = {t}$")
-    print("Int qh+qt at t = ", np.sum(qsum[0,t_ind]+qsum[1,t_ind]))
+    print("Int qh+qt at t = ", scale*np.sum(qsum[0,t_ind]+qsum[1,t_ind]))
     t_ind+=1
 plt.title(f"$\int q=\int qtil+\int \hat q$ edge (0,1) time evolution")
 plt.legend()
