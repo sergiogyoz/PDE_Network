@@ -413,7 +413,9 @@ class Solver:
         return qt
 
     def resource_z(self, t, eps= 10 ** -4.5):
-        zijxt = np.zeros(self.ic.qx.shape-(0,0,1))
+        zijxt = np.zeros([self.ic.qx.shape[0],
+                          self.ic.qx.shape[1],
+                          self.ic.qx.shape[2]-1])
         for i in range(self.ic.n):
             for j in self.ic.adj[i]:
                 lambdas, As, M= self._bound_parameters(i, j, t, eps)
@@ -430,7 +432,7 @@ class Solver:
                                  * ((self.ic.g[i,j] / (math.pi * ms))
                                     * (sin - expsin)
                                     + (expcos - cos)))
-                    zijxt[i,j,n]= ((N/2) * math.exp(self.ic.g[i,j] * (n/N))) * sum
+                    zijxt[i,j,n-1]= ((N/2) * math.exp(self.ic.g[i,j] * (n/N))) * sum
         return zijxt
 
     @staticmethod
