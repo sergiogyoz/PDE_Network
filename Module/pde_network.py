@@ -351,7 +351,7 @@ class Solver:
                     x = x+dx
         return qt
 
-    def total_resource_y(self, t, Omega=10):
+    def resource_y(self, t, Omega=10):
         log2 = self.ftool.LOG2
         ndim = self.ic.n
         # values of s for GS laplace inversion
@@ -398,14 +398,12 @@ class Solver:
                     Tq[i,j,n-1] = self.ftool.GSinverse(Yijxs, t, Omega)
         return Tq
 
-
-
-    def q_tilde(self, t):
+    def q_tilde(self, t, eps= 10 ** -4.5):
         qt = np.zeros_like(self.ic.qx)
         n = self.ic.n
         for i in range(n):
             for j in self.ic.adj[i]:
-                lambdas, As, M= self._bound_parameters(i, j, t)
+                lambdas, As, M= self._bound_parameters(i, j, t, eps)
                 ms = np.array([m for m in range(1,M+1)])
                 N = self.ic.N[i,j]-1
                 dx = self.ic.l[i,j]/N  # x=(n-1)*dx= x_ind*dx
@@ -413,6 +411,27 @@ class Solver:
                     sines = np.sin(ms*math.pi*x_ind*dx/ self.ic.l[i,j])
                     qt[i,j,x_ind]= np.sum(As*np.exp(lambdas*t)*sines)
         return qt
+
+    def resource_z(self, t, eps= 10 ** -4.5):
+        zijxt = np.zeros(self.ic.qx.shape-(0,0,1))
+        for i in range(self.ic.n):
+            for j in self.ic.adj[i]:
+                lambdas, As, M= self._bound_parameters(i, j, t, eps)
+                ms = np.array([m for m in range(1,M+1)])
+                N = self.ic.N[i,j]-1
+                for n in range(1, N+1): # 1<= n <=N
+                    #we will make a term for each sin and cos term
+                    sin = np.sin(ms * n * math.pi / N)
+                    expsin = np.sin(ms * (n-1) * math.pi / N) * math.exp(-self.ic.g[i,j] / N)
+                    cos = np.cos(ms * n * math.pi / N)
+                    expcos = np.cos(ms * (n-1) * math.pi / N) * math.exp(-self.ic.g[i,j] / N)
+                    mu = np.array([ self._mu_ij(m, i, j) for m in range(1, M+1) ])
+                    sum = np.sum(mu * As * np.exp(lambdas * t)
+                                 * ((self.ic.g[i,j] / (math.pi * ms))
+                                    * (sin - expsin)
+                                    + (expcos - cos)))
+                    zijxt[i,j,n]= ((N/2) * math.exp(self.ic.g[i,j] * (n/N))) * sum
+        return zijxt
 
     @staticmethod
     def _beta(s, qx, g, h, R, u, alpha, N): # re-checked

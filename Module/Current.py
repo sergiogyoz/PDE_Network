@@ -8,6 +8,10 @@ from pde_network import InitialConditions
 from pde_network import _f_tools
 from pde_network import Solver
 
+x=np.array([n for n in range(1,5)])
+y=5*2/x
+print(y)
+# %%
 # ----- Testing non homogeneous against an exact solution
 n = 2
 Ngrid = 101
