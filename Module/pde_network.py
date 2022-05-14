@@ -327,7 +327,7 @@ class Solver:
             betas[s_ind], Ms[s_ind], alphas[s_ind], hs[s_ind] = (
                 self.beta_matrix(s, True))
             I = self.I_Lap_vector(s)
-            beta_i=np.sum(betas[s_ind], axis=1)
+            beta_i = np.sum(betas[s_ind], axis=1)
             # Solve the matrix system
             C = scipy.sparse.linalg.spsolve(Ms[s_ind], I+beta_i)
             # fill the X_ij(s)
@@ -350,6 +350,55 @@ class Solver:
                     qt[i,j,x_ind] = self.ftool.GSinverse(Qijxs, t, Omega)
                     x = x+dx
         return qt
+
+    def total_resource_y(self, t, Omega=10):
+        log2 = self.ftool.LOG2
+        ndim = self.ic.n
+        # values of s for GS laplace inversion
+        s_range = np.array([n*log2/t for n in range(1, Omega+1)])
+        Ms = np.zeros([Omega, ndim, ndim])
+        alphas = np.zeros([Omega, ndim, ndim])
+        hs = np.zeros([Omega, ndim, ndim])
+        Xs = np.zeros([Omega, ndim, ndim])
+        betas = np.zeros([Omega, ndim, ndim])
+        s_ind = 0
+        for s in s_range:
+            # fill out the betas, propagation matrix, alpha, and h
+            betas[s_ind], Ms[s_ind], alphas[s_ind], hs[s_ind] = (
+                self.beta_matrix(s, True))
+            I = self.I_Lap_vector(s)
+            beta_i=np.sum(betas[s_ind], axis=1)
+            # Solve the matrix system
+            C = scipy.sparse.linalg.spsolve(Ms[s_ind], I+beta_i)
+            # fill the X_ij(s)
+            for i in range(ndim):
+                for j in self.ic.adj[i]:
+                    Xs[s_ind,i,j] = C[i]*self.ic.S[i,j]
+            s_ind = s_ind + 1
+
+        # Find total resource \Int_0^l qij(x,t) using stored values and GS algor
+        Tq = np.zeros([ndim, ndim, self.ic.N[i,j]-1])
+        for i in range(ndim):
+            for j in self.ic.adj[i]:
+                # It goes from 1 to up to N (number of intervals) so N=Nij-1
+                for n in range(1, self.ic.N[i,j]):
+                    Yijxs = [0.0]*Omega
+                    for s_ind in range(Omega):
+                        Yijxs[s_ind] = self._Y(n,
+                                               s_range[s_ind],
+                                               self.ic.g[i,j],
+                                               hs[s_ind,i,j],
+                                               self.ic.R[i,j],
+                                               self.ic.u[i,j],
+                                               alphas[s_ind,i,j],
+                                               self.ic.N[i,j]-1,
+                                               self.ic.l[i,j],
+                                               Xs[s_ind,i,j],
+                                               Xs[s_ind,j,i])
+                    Tq[i,j,n-1] = self.ftool.GSinverse(Yijxs, t, Omega)
+        return Tq
+
+
 
     def q_tilde(self, t):
         qt = np.zeros_like(self.ic.qx)
@@ -504,4 +553,18 @@ class Solver:
         Sol = A*expA+B*expB+f_ijxs
         return Sol
 
-
+    @staticmethod
+    def _Y(n, s, g, h, R, u, alpha, N, l, Xij, Xji):
+        """N is the number of INTERVALS, not grid points"""
+        # I'll make a term for eta and each X term and then add and multiply together
+        eta = (N*math.exp(h))/(4*(s+R)*l*math.sinh(h))
+        Xij1 = Xij*(math.exp(((n-1) / N) * (g - h))
+                    - math.exp((n / N) * (g - h)))
+        Xji1 = Xji*(math.exp(((n - N) / N) * g - ((n + N) / N) * h)
+                    - math.exp(((n - N - 1) / N) * g - ((n + N - 1)/N) * h))
+        Xij2 = Xij*(math.exp(((n - 1) / N) * g - ((2*N - n + 1) / N) * h)
+                    - math.exp((n / N) * g - ((2*N - n)/N) * h))
+        Xji2 = Xji*(math.exp(((n - N) / N) * (g + h))
+                    - math.exp(((n - N - 1) / N) * (g + h)))
+        Yn = eta*(alpha + u)*(Xij1 + Xji1) + eta*(alpha - u)*(Xij2 + Xji2) 
+        return Yn
