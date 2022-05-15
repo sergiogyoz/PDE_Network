@@ -10,12 +10,12 @@ print("loaded libraries")
 # %%
 # ----- Testing the example 1, Fig 4 from the paper
 # value parameters units are in mm, micromoles and seconds
-k = 5 *(10**-6)  # mmole(milimole)/litre --> mmole/mm^3
+k = 5 *(10**-3)  # mmole(milimole)/litre --> micromole/mm^3
 F = 0.002  # mm^3/s (regarless of S_i)
 rho = 0.05  # mm/s density of transporters
-Dm = 6.7*(10**-4)  # molecular diff coeff of glucose in water at body temp
+Dm = 6.7*(10**-4)  # mm^2/s molecular diff coeff of glucose in water at body temp
 l12 = 1  # mm
-Srange = [100*sval*(10**-6) for sval in range(1,11)]  #  micron^2 --> mm^2 for 1<=k<=10
+Srange = [sval*(10**-6) for sval in range(100,1001,100)]  #  micron^2 --> mm^2 for 1<=k<=10
 n = 2  # size of the network
 Ngrid = 101
 Omega = 6
@@ -66,9 +66,9 @@ for S12 in Srange:
 
 for parentesis in [1]:
     # plot the sampled points
-    xscale = 10**6  # mm to microns
+    xscale = 10**6  # mm^2 to microns^2
     x = [xscale*S12 for S12 in Srange]
-    yscale = 60*60*(10**6)  # mmole/seconds --> micromole/hours
+    yscale = 60*60  # micromole/seconds --> micromole/hours
     y = [yscale*Ctot for Ctot in C]
     plt.figure(figsize=(6,6), dpi=150)
     plt.plot(x, y,
@@ -81,13 +81,14 @@ for parentesis in [1]:
     plt.xlabel("Cross sectional area of the vessel, $\mu m^2$")
     plt.ylabel("Total rate of resource consumption, $\mu$mole per hour")
 
+# %%
 for parentesis in [1]:
     M = np.zeros((2,2),dtype=np.float64)
     l = 1
     F = 0.002
     rho = 0.05
     Dm = 6.7*(10**-4)
-    k = 5 *(10**-6)
+    k = 5 *(10**-3)
     Srange = [sval*(10**-6) for sval in range(1,1000)]
     C = []
     for S in Srange:
@@ -96,6 +97,9 @@ for parentesis in [1]:
         D = Dm + u*u*r*r/(48*Dm)
         R = rho / math.sqrt(S)
         alpha = math.sqrt(u*u + 4*D*R)
+        Fp = (F/2) * (1 + math.sqrt(1
+                            + 4 * R * Dm * S*S / (F*F)
+                            + S / (48 * math.pi * Dm)))
         h = alpha*l / (2*D)
         g = u*l / (2*D)
         M[0,0] = (S/2) * (u + alpha/math.tanh(h))
@@ -108,13 +112,56 @@ for parentesis in [1]:
 
         C.append(Ctot)
 
-    xscale = 10**6  # mm to microns
+    xscale = 10**6  # mm^2 to microns^2
     x = [xscale*S12 for S12 in Srange]
-    yscale = 60*60*(10**6)  # mmole/seconds --> micromole/hours
+    yscale = 60*60  # micromole/seconds --> micromole/hours
     y = [yscale*Ctot for Ctot in C]
     plt.plot(x, y,
              linestyle="--",
              label = "fixed current, analytic solution")
     plt.legend()
+
+# %%
+for parentesis in [1]:
+    M = np.zeros((2,2),dtype=np.float64)
+    l = 1
+    mu = 0.007*(10**-1)  # g/(cm*s) --> g/(mm*s) viscosity of water
+    rho = 0.05
+    Dm = 6.7*(10**-4)
+    k = 5 *(10**-3)
+    Srange = [sval*(10**-6) for sval in range(1,1000)]
+    DeltaP = 8*math.pi*mu*l*(2)/Srange[-1]
+    C = []
+    for S in Srange:
+        r = math.sqrt(S/math.pi)
+        u = S* (DeltaP/(8*math.pi*mu*l))
+        D = Dm + u*u*r*r/(48*Dm)
+        R = rho / math.sqrt(S)
+        alpha = math.sqrt(u*u + 4*D*R)
+        F = u*S
+        Fp = (F/2) * (1 + math.sqrt(1
+                    + 4 * R * Dm * S*S / (F*F)
+                    + S / (48 * math.pi * Dm)))
+        h = alpha*l / (2*D)
+        g = u*l / (2*D)
+        M[0,0] = (S/2) * (u + alpha/math.tanh(h))
+        M[1,1] = (S/2) * (-u + alpha/math.tanh(h))
+        M[0,1] = (-S/2) * (alpha*math.exp(-g) / math.sinh(h))
+        M[1,0] = (-S/2) * (alpha*math.exp(g) / math.sinh(h))
+        Ctot = k * (M[0,0]
+                    + (M[1,0]*Fp-M[1,0]*M[0,1])
+                    / (M[1,1]+Fp))
+
+        C.append(Ctot)
+
+    xscale = 10**6  # mm^2 to microns^2
+    x = [xscale*S12 for S12 in Srange]
+    yscale = 60*60  # micromole/seconds --> micromole/hours
+    y = [yscale*Ctot for Ctot in C]
+    plt.plot(x, y,
+             linestyle="--",
+             label = "fixed pressure drop")
+    plt.legend()
     plt.show()
+
 # %%
