@@ -2,108 +2,119 @@
 import math
 import numpy as np
 import matplotlib.pyplot as plt
-from sys import getsizeof
 # My module
 from pde_network import InitialConditions
 from pde_network import _f_tools
 from pde_network import Solver
-
-# ----- Testing ammount of resource against an exact solution
-n = 2
+print("loaded libraries")
+# %%
+# ----- Testing the example 1, Fig 4 from the paper
+# value parameters units are in mm, micromoles and seconds
+k = 5 *(10**-6)  # mmole(milimole)/litre --> mmole/mm^3
+F = 0.002  # mm^3/s (regarless of S_i)
+rho = 0.05  # mm/s density of transporters
+Dm = 6.7*(10**-4)  # molecular diff coeff of glucose in water at body temp
+l12 = 1  # mm
+Srange = [100*sval*(10**-6) for sval in range(1,11)]  #  micron^2 --> mm^2 for 1<=k<=10
+n = 2  # size of the network
 Ngrid = 101
-Dconst = 1
-uconst = 0.0
-Rconst = 0.0
-lconst = math.pi
-Sconst = 1
 Omega = 6
+# storage variable
+C = []
+for S12 in Srange:
+    # Networks parameters
+    qx = np.zeros([n, n, Ngrid])
 
-# Networks parameters
-qx = np.zeros([n, n, Ngrid])
-l = np.matrix([[0, lconst], [lconst, 0]], dtype=np.float64)
-R = np.matrix([[0, Rconst], [Rconst, 0]], dtype=np.float64)
-D = np.matrix([[0, Dconst], [Dconst, 0]], dtype=np.float64)
-u = np.matrix([[0, uconst], [-uconst, 0]], dtype=np.float64)
-S = np.matrix([[0, Sconst], [Sconst, 0]], dtype=np.float64)
+    S = np.zeros([n,n], dtype=np.float64)
+    S[0,1] = S12
+    InitialConditions.symmetrize(S)
 
-# fill upper triangular part of q_ij(x,0) and flip for q_ji(x,0)
-deltax=math.pi/(Ngrid-1)
-x_range=np.array([k*deltax for k in range(Ngrid)])
-for i in range(n):
-    for j in range(i+1, n):
-        qx[i,j] = np.sin(x_range)+1
-        qx[j,i] = np.flip(qx[i,j])
+    l = np.zeros([n,n], dtype=np.float64)
+    l[0,1] = l12
+    InitialConditions.symmetrize(l)
 
-# We need I_i(t) (net rate resource leaves i)
-I = [_f_tools.zerof]*n
-def I_i(t):
-    return -math.exp(-t)
-for i in range(n):
-    I[i] = I_i
+    R = np.zeros([n,n], dtype=np.float64)
+    R[0,1] = rho/math.sqrt(S12)
+    InitialConditions.symmetrize(R)
 
-# the definition of y and z are mean values
-# so we need to multiply by l/N for the actual integral
-scale=lconst/(Ngrid-1)
+    u = np.zeros([n,n], dtype=np.float64)
+    u[0,1] = F/S12  # F=u*S
+    InitialConditions.antisymmetrize(u)
 
-# start the testing
-T=[0.001, 0.01, 0.1, 1, 10]
-x_range=np.array([k*deltax for k in range(Ngrid-1)])
-"""T=[0.1,0.3,0.5,0.7,1.0]"""
-IC_test=InitialConditions(qx, l, R, D, u, S, I)
-qsum=np.zeros([2,len(T),Ngrid-1])
+    D = np.zeros([n,n], dtype=np.float64)
+    def Dij(i, j):
+        rij = math.sqrt(S[i,j]/math.pi)
+        return Dm + u[i,j]*u[i,j]*rij*rij/(48*Dm)
+    D[0,1] = Dij(0,1)
+    InitialConditions.symmetrize(D)
 
-# solve for qhat at different times
-t_ind=0
-for t in T:
-    solve=Solver(IC_test)
-    qhat=solve.resource_y(t, Omega)
-    qsum[0,t_ind]=qhat[0,1]
-    #plot the solutions
-    plt.plot(x_range, qhat[0,1], label=f"$t = {t}$")
-    print("Int qhat at t = ", scale*np.sum(qhat[0,1]))
-    t_ind+=1
-plt.title(f"$\int \hat q$ edge (0,1) time evolution")
-plt.legend()
-plt.show()
+    Fp = (F/2) * (1 + math.sqrt(1
+                              + 4 * R[0,1] * Dm * S[0,1]*S[0,1] / (F*F)
+                              + S[0,1] / (48 * math.pi * Dm)))
 
-# Solve for q tilde at different times
-plt.figure()
-t_ind=0
-for t in T:
-    solve=Solver(IC_test)
-    qtilde=solve.resource_z(t, 10**(-0.45*Omega))
-    qsum[1,t_ind]=qtilde[0,1]
-    #plot the solutions
-    plt.plot(x_range, qtilde[0,1], label=f"$t = {t}$")
-    print("Int qtilde at t = ", scale*np.sum(qtilde[0,1]))
-    t_ind+=1
-plt.title(f"$\int qtil$ edge (0,1) time evolution")
-plt.legend()
-plt.show()
+    # initially empty network so it's characterized with the propagation matrix
+    I_dummy = [_f_tools.zerof for i in range(2)]
+    ic = InitialConditions(qx,l,R,D,u,S,I_dummy)
+    solver = Solver(ic)
+    M = solver.prog_matrix(0)
+    Ctot = k * (M[0,0]
+                + (M[1,0]*Fp-M[1,0]*M[0,1])
+                / (M[1,1]+Fp))
 
-# Plot the solution against the exact solution
-plt.figure()
-t_ind=0
-for t in T:
-    #plot the solutions
-    plt.plot(x_range,
-             qsum[0,t_ind]+qsum[1,t_ind],
-             label=f"$t = {t}$")
-    print("Int qh+qt at t = ", scale*np.sum(qsum[0,t_ind]+qsum[1,t_ind]))
-    t_ind+=1
-plt.title(f"$\int q=\int qtil+\int \hat q$ edge (0,1) time evolution")
-plt.legend()
-plt.show()
+    C.append(Ctot)
+    print(f"Finished S = {S12:.0e}")
 
-# Plot exact solutions to compare
-for t in T:
-    #plot the solutions
-    plt.plot(x_range,
-             math.exp(-t)*np.sin(x_range)+1,
-             label=f"$t = {t}$")
-    print("exact Int q at t = ", 2*math.exp(-t)+math.pi)
-plt.title(f"exact solution edge (0,1) time evolution")
-plt.legend()
-plt.show()
+for parentesis in [1]:
+    # plot the sampled points
+    xscale = 10**6  # mm to microns
+    x = [xscale*S12 for S12 in Srange]
+    yscale = 60*60*(10**6)  # mmole/seconds --> micromole/hours
+    y = [yscale*Ctot for Ctot in C]
+    plt.figure(figsize=(6,6), dpi=150)
+    plt.plot(x, y,
+            label = "fixed current, numerical solution",
+            linestyle = "None",
+            marker = "+",
+            markersize = 12)
+    plt.gca().set_xlim(left=0)
+    plt.gca().set_ylim(bottom=0)
+    plt.xlabel("Cross sectional area of the vessel, $\mu m^2$")
+    plt.ylabel("Total rate of resource consumption, $\mu$mole per hour")
 
+for parentesis in [1]:
+    M = np.zeros((2,2),dtype=np.float64)
+    l = 1
+    F = 0.002
+    rho = 0.05
+    Dm = 6.7*(10**-4)
+    k = 5 *(10**-6)
+    Srange = [sval*(10**-6) for sval in range(1,1000)]
+    C = []
+    for S in Srange:
+        r = math.sqrt(S/math.pi)
+        u = F/S
+        D = Dm + u*u*r*r/(48*Dm)
+        R = rho / math.sqrt(S)
+        alpha = math.sqrt(u*u + 4*D*R)
+        h = alpha*l / (2*D)
+        g = u*l / (2*D)
+        M[0,0] = (S/2) * (u + alpha/math.tanh(h))
+        M[1,1] = (S/2) * (-u + alpha/math.tanh(h))
+        M[0,1] = (-S/2) * (alpha*math.exp(-g) / math.sinh(h))
+        M[1,0] = (-S/2) * (alpha*math.exp(g) / math.sinh(h))
+        Ctot = k * (M[0,0]
+                    + (M[1,0]*Fp-M[1,0]*M[0,1])
+                    / (M[1,1]+Fp))
+
+        C.append(Ctot)
+
+    xscale = 10**6  # mm to microns
+    x = [xscale*S12 for S12 in Srange]
+    yscale = 60*60*(10**6)  # mmole/seconds --> micromole/hours
+    y = [yscale*Ctot for Ctot in C]
+    plt.plot(x, y,
+             linestyle="--",
+             label = "fixed current, analytic solution")
+    plt.legend()
+    plt.show()
 # %%

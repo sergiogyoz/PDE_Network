@@ -1,0 +1,16 @@
+For the example problem we have the following setup
+	- the number of transporters per unit length is 
+	proportional to the radius of the vessel
+	- the number of transporters per unit volume of blood 
+	is inversely proportional to the radius of the vessel
+	- the local delivery rate per unit of resource Rij 
+	is inversely proportional to the radius of the vessel
+	- We fix the concentration at node 1
+	- inject some volume of fluid F per unit time at node 1,
+	and remove an equal volume of fluid at node 2
+	- conductance of each edge is proportional to  S_i^2/l_ij.
+
+Stuff I'm assuming/guessing from the info
+	- F is the medium volume moving through (constant)
+	- F = Si*uij
+	- Dm

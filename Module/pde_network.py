@@ -59,7 +59,7 @@ class InitialConditions:
         Evaluates a vector function at t
     """
     def __init__(self, qx=np.zeros(0), l=np.zeros(0), R=np.zeros(0),
-                 D=np.zeros(0), u=np.zeros(0), S=np.zeros(0), I=np.array([1]),
+                 D=np.zeros(0), u=np.zeros(0), S=np.zeros(0), I=[],
                  qt=False, C=False):
         self.qx = qx    # 3D Array of qij at every Delta x at current t
         self.l = l
@@ -81,8 +81,6 @@ class InitialConditions:
 
         self.qt = qt    # Not currently implemented. Optional
         self.C = C  # Not currently implemented
-        if (not C) and (not I):
-            raise(ValueError("No concentration C or current I given"))
 
     def print_IC(self, t=0.0, stop_at=3, show_extra=False):
         print("Number of nodes= ", self.n)
