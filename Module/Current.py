@@ -10,7 +10,7 @@ print("loaded libraries")
 # %%
 # ----- Testing the example 1, Fig 4 from the paper
 # value parameters units are in mm, micromoles and seconds
-k = 5 *(10**-3)  # mmole(milimole)/litre --> micromole/mm^3
+k = 5   # mmole(milimole)/litre --> micromole/mm^3 ??
 F = 0.002  # mm^3/s (regarless of S_i)
 rho = 0.05  # mm/s density of transporters
 Dm = 6.7*(10**-4)  # mm^2/s molecular diff coeff of glucose in water at body temp
@@ -64,6 +64,7 @@ for S12 in Srange:
     C.append(Ctot)
     print(f"Finished S = {S12:.0e}")
 
+
 for parentesis in [1]:
     # plot the sampled points
     xscale = 10**6  # mm^2 to microns^2
@@ -81,14 +82,14 @@ for parentesis in [1]:
     plt.xlabel("Cross sectional area of the vessel, $\mu m^2$")
     plt.ylabel("Total rate of resource consumption, $\mu$mole per hour")
 
-# %%
+
 for parentesis in [1]:
     M = np.zeros((2,2),dtype=np.float64)
     l = 1
     F = 0.002
     rho = 0.05
     Dm = 6.7*(10**-4)
-    k = 5 *(10**-3)
+    k = 5
     Srange = [sval*(10**-6) for sval in range(1,1000)]
     C = []
     for S in Srange:
@@ -121,14 +122,14 @@ for parentesis in [1]:
              label = "fixed current, analytic solution")
     plt.legend()
 
-# %%
+
 for parentesis in [1]:
     M = np.zeros((2,2),dtype=np.float64)
     l = 1
     mu = 0.007*(10**-1)  # g/(cm*s) --> g/(mm*s) viscosity of water
     rho = 0.05
     Dm = 6.7*(10**-4)
-    k = 5 *(10**-3)
+    k = 5
     Srange = [sval*(10**-6) for sval in range(1,1000)]
     DeltaP = 8*math.pi*mu*l*(2)/Srange[-1]
     C = []
@@ -159,7 +160,6 @@ for parentesis in [1]:
     yscale = 60*60  # micromole/seconds --> micromole/hours
     y = [yscale*Ctot for Ctot in C]
     plt.plot(x, y,
-             linestyle="--",
              label = "fixed pressure drop")
     plt.legend()
     plt.show()
