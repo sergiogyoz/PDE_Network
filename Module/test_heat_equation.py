@@ -41,8 +41,9 @@ for i in range(n):
 T=[0.001, 0.01, 0.1, 1, 10]
 IC_test = InitialConditions(qx, l, R, D, u, S, I)
 qsum = np.zeros([2, len(T), Ngrid])
-
+figsize=(6,5); dpi=150
 # solve for qhat at different times
+plt.figure(figsize=figsize,dpi=dpi)
 t_ind = 0
 for t in T:
     solve = Solver(IC_test)
@@ -51,12 +52,12 @@ for t in T:
     t_ind += 1
     # plot the solutions
     plt.plot(x_range, qhat[0,1], label=f"$t = {t}$")
-plt.title(f"qhat edge (0,1) time evolution")
+plt.title(f" $qhat$ time evolution")
 plt.legend()
 plt.show()
 
 # Solve for q tilde at different times
-plt.figure()
+plt.figure(figsize=figsize,dpi=dpi)
 t_ind = 0
 for t in T:
     solve = Solver(IC_test)
@@ -65,11 +66,11 @@ for t in T:
     t_ind += 1
     # plot the solutions
     plt.plot(x_range, qtilde[0,1], label=f"$t = {t}$")
-plt.title(f"qtilde edge (0,1) time evolution")
+plt.title(f"$qtilde$ time evolution")
 plt.legend()
 plt.show()
 # Plot the solution against the exact solution
-plt.figure()
+plt.figure(figsize=figsize,dpi=dpi)
 t_ind = 0
 for t in T:
     # plot the solutions
@@ -82,6 +83,7 @@ plt.legend()
 plt.show()
 
 # Plot exact solutions to compare
+plt.figure(figsize=figsize,dpi=dpi)
 for t in T:
     # plot the solutions
     plt.plot(x_range,
@@ -90,3 +92,20 @@ for t in T:
 plt.title(f"exact solution edge (0,1) time evolution")
 plt.legend()
 plt.show()
+
+# Plot exact solutions to compare
+plt.figure(figsize=figsize,dpi=dpi)
+t_ind = 0
+for t in T:
+    # plot the solutions
+    plt.plot(x_range,
+             (qsum[0,t_ind]+qsum[1,t_ind]
+             -(math.exp(-t)*np.sin(x_range)+1))
+             /(math.exp(-t)*np.sin(x_range)+1),
+             label=f"$t = {t}$")
+    t_ind += 1
+plt.title(f"Relative error at different times")
+plt.legend()
+plt.show()
+
+# %%
